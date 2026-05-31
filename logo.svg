@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7aa2f7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#bb9af7;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background (Tokyo Night Dark) -->
+  <rect width="512" height="512" rx="120" fill="#1a1b26" />
+  
+  <!-- Left Bracket { -->
+  <text x="22%" y="53%" font-family="monospace" font-size="220" font-weight="bold" fill="#565f89" text-anchor="middle" dominant-baseline="middle">{</text>
+  
+  <!-- Center 'S' -->
+  <text x="50%" y="53%" font-family="serif" font-size="280" font-weight="bold" fill="url(#grad1)" text-anchor="middle" dominant-baseline="middle">S</text>
+  
+  <!-- Right Bracket } -->
+  <text x="78%" y="53%" font-family="monospace" font-size="220" font-weight="bold" fill="#565f89" text-anchor="middle" dominant-baseline="middle">}</text>
+  
+  <!-- Subtle LaTeX decoration -->
+  <circle cx="50%" cy="80%" r="8" fill="#7aa2f7" />
+</svg>

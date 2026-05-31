@@ -6,6 +6,7 @@ import tempfile
 
 import fitz  # PyMuPDF
 from PyQt6.QtCore import QDir, QModelIndex, Qt, QTimer
+from PyQt6.QtGui import QIcon  # <--- Added QIcon
 from PyQt6.QtGui import (
     QFileSystemModel,
     QFont,
@@ -35,9 +36,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+
 # --- THEME ENGINE ---
-
-
 def get_standard_css(
     bg_main,
     bg_alt,
@@ -56,10 +56,7 @@ def get_standard_css(
     QLabel#WelcomeSubtitle {{ font-size: 16px; color: {fg_dim}; }}
     QLabel#ExplorerTitle {{ font-size: 24px; color: {accent}; padding: 10px; }}
     
-    QPushButton {{
-        background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border};
-        padding: 10px; border-radius: 6px; font-weight: bold;
-    }}
+    QPushButton {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 10px; border-radius: 6px; font-weight: bold; }}
     QPushButton:hover {{ background-color: {bg_hover}; }}
     QPushButton:pressed {{ background-color: {accent}; color: {accent_text}; }}
     
@@ -68,12 +65,8 @@ def get_standard_css(
     
     QPushButton.FindBtn {{ padding: 6px 10px; border-radius: 4px; font-size: 12px; }}
     
-    QPushButton#WelcomeBtnNew, QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction {{
-        font-size: 16px; padding: 15px 30px; background-color: {accent}; color: {accent_text}; border: none;
-    }}
-    QPushButton#WelcomeBtnNew:hover, QPushButton#WelcomeBtnOpen:hover, QPushButton#DialogBtnAction:hover {{
-        background-color: {accent_hover};
-    }}
+    QPushButton#WelcomeBtnNew, QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction {{ font-size: 16px; padding: 15px 30px; background-color: {accent}; color: {accent_text}; border: none; }}
+    QPushButton#WelcomeBtnNew:hover, QPushButton#WelcomeBtnOpen:hover, QPushButton#DialogBtnAction:hover {{ background-color: {accent_hover}; }}
 
     QLineEdit {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 10px; border-radius: 4px; }}
     QLineEdit:focus {{ border: 1px solid {accent}; }}
@@ -89,10 +82,7 @@ def get_standard_css(
     QWidget#Toolbar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
     QWidget#FindBar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
     
-    QPlainTextEdit {{
-        background-color: {bg_main}; color: {fg_main}; border: none; padding: 15px;
-        selection-background-color: {accent}; selection-color: {accent_text}; font-size: 14px;
-    }}
+    QPlainTextEdit {{ background-color: {bg_main}; color: {fg_main}; border: none; padding: 15px; selection-background-color: {accent}; selection-color: {accent_text}; font-size: 14px; }}
     
     QScrollArea {{ background-color: {bg_main}; border: none; }}
     QLabel#PdfPage {{ background-color: white; border: 1px solid {border}; margin: 20px; }}
@@ -161,47 +151,33 @@ THEMES = {
         QLabel#WelcomeTitle { font-size: 55px; letter-spacing: -2px; }
         QLabel#WelcomeSubtitle { font-size: 18px; }
         QLabel#ExplorerTitle { font-size: 24px; background-color: #FF90E8; border: 3px solid #000000; border-right: 6px solid #000000; border-bottom: 6px solid #000000; padding: 10px 20px; margin-bottom: 15px; }
-        
         QPushButton { background-color: #FFDE59; color: #000000; font-size: 15px; font-weight: 900; border: 3px solid #000000; border-right: 6px solid #000000; border-bottom: 6px solid #000000; padding: 12px 20px; }
         QPushButton:hover { background-color: #42E6A4; }
         QPushButton:pressed { background-color: #00C4CC; border-right: 2px solid #000000; border-bottom: 2px solid #000000; margin-top: 4px; margin-left: 4px; }
-        
         QPushButton.SidebarBtn { background-color: #FFFFFF; text-align: left; margin-bottom: 8px; }
-        QPushButton#SidebarBtnNew { background-color: #42E6A4; }
-        QPushButton#SidebarBtnOpen { background-color: #FFDE59; }
-        QPushButton#SidebarBtnSave { background-color: #FF90E8; }
-        QPushButton#SidebarBtnPdf { background-color: #00C4CC; }
-        
         QPushButton.FindBtn { padding: 5px 15px; font-size: 12px; }
-        
         QPushButton#WelcomeBtnNew { background-color: #42E6A4; font-size: 18px; padding: 20px 40px; }
         QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction { background-color: #FF90E8; font-size: 18px; padding: 20px 40px; }
-        
         QLineEdit { background-color: #FFFFFF; color: #000000; border: 3px solid #000000; border-right: 5px solid #000000; border-bottom: 5px solid #000000; padding: 12px; font-size: 15px; font-weight: 900; }
         QLineEdit:focus { background-color: #E0F7FA; outline: none; }
         QLineEdit#FindInput { padding: 6px; }
-        
         QListView { background-color: #FFFFFF; color: #000000; border: 3px solid #000000; border-right: 7px solid #000000; border-bottom: 7px solid #000000; font-size: 15px; font-weight: bold; padding: 5px; outline: none; }
         QListView::item { padding: 12px; border-bottom: 2px solid #000000; }
         QListView::item:selected { background-color: #B794F4; color: #000000; border: 3px solid #000000; }
         QListView::item:hover:!selected { background-color: #FFDE59; }
-        
         QSplitter::handle { background-color: #000000; width: 6px; }
         QWidget#Sidebar { background-color: #F4F0EA; border-right: 6px solid #000000; }
         QWidget#Toolbar { background-color: #F4F0EA; border-bottom: 6px solid #000000; }
         QWidget#FindBar { background-color: #F4F0EA; border-bottom: 6px solid #000000; }
-        
         QPlainTextEdit { background-color: #FFFFFF; color: #000000; border: none; padding: 15px; font-size: 15px; font-weight: bold; selection-background-color: #FF90E8; selection-color: #000000; }
         QScrollArea { background-color: #F4F0EA; border: none; }
         QLabel#PdfPage { background-color: #FFFFFF; border: 3px solid #000000; border-right: 10px solid #000000; border-bottom: 10px solid #000000; margin: 20px; }
-        
         QLabel#StatusLabel { font-weight: 900; padding: 12px; font-size: 13px; border-top: 5px solid #000000; color: #000000; }
         QLabel#StatusLabel[state="normal"] { background-color: #FFFFFF; }
         QLabel#StatusLabel[state="working"] { background-color: #FFDE59; }
         QLabel#StatusLabel[state="success"] { background-color: #42E6A4; }
         QLabel#StatusLabel[state="warning"] { background-color: #FF90E8; }
         QLabel#StatusLabel[state="error"] { background-color: #FF5A5A; }
-        
         QComboBox { background-color: #FFFFFF; color: #000000; border: 3px solid #000000; border-right: 5px solid #000000; border-bottom: 5px solid #000000; padding: 8px; font-weight: 900; }
         QComboBox::drop-down { border: none; }
         QComboBox QAbstractItemView { background-color: #FFFFFF; color: #000000; selection-background-color: #42E6A4; }
@@ -216,61 +192,47 @@ class CustomFileDialog(QDialog):
         self.mode = mode
         self.extension = extension
         self.selected_path = None
-
         self.setWindowTitle(
             f"{'Open' if mode == 'open' else 'Save'} File ({extension})"
         )
         self.resize(800, 600)
-
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-
         title = QLabel(f" {'📂 OPEN FILE' if mode == 'open' else '💾 SAVE FILE'} ")
         title.setObjectName("ExplorerTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-
         path_layout = QHBoxLayout()
         btn_up = QPushButton("⬆ UP DIR")
         btn_up.clicked.connect(self.go_up)
-
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
-
         path_layout.addWidget(btn_up)
         path_layout.addWidget(self.path_edit)
         layout.addLayout(path_layout)
-
         self.model = QFileSystemModel()
         self.model.setRootPath("")
-
         if self.mode == "open":
             self.model.setNameFilters([f"*{self.extension}"])
             self.model.setNameFilterDisables(False)
-
         self.list_view = QListView()
         self.list_view.setModel(self.model)
         self.list_view.setRootIndex(self.model.index(QDir.homePath()))
         self.path_edit.setText(QDir.homePath())
-
         self.list_view.doubleClicked.connect(self.on_double_click)
         self.list_view.clicked.connect(self.on_single_click)
         layout.addWidget(self.list_view)
-
         bottom_layout = QHBoxLayout()
         self.name_input = QLineEdit()
-
         if self.mode == "save":
             self.name_input.setPlaceholderText("Enter file name (e.g. my_document)")
         else:
             self.name_input.setPlaceholderText("Select a file from the list above...")
             self.name_input.setReadOnly(True)
-
         btn_action = QPushButton("SAVE IT!" if mode == "save" else "OPEN IT!")
         btn_action.setObjectName("DialogBtnAction")
         btn_action.clicked.connect(self.accept_action)
-
         bottom_layout.addWidget(self.name_input)
         bottom_layout.addWidget(btn_action)
         layout.addLayout(bottom_layout)
@@ -299,11 +261,9 @@ class CustomFileDialog(QDialog):
     def accept_action(self):
         current_folder = self.path_edit.text()
         input_name = self.name_input.text().strip()
-
         if not input_name and self.mode == "save":
             QMessageBox.warning(self, "Warning", "Please enter a file name.")
             return
-
         if self.mode == "save":
             if not input_name.endswith(self.extension):
                 input_name += self.extension
@@ -312,7 +272,6 @@ class CustomFileDialog(QDialog):
                 return
             if not input_name.endswith(self.extension):
                 input_name += self.extension
-
         self.selected_path = os.path.join(current_folder, input_name)
         self.accept()
 
@@ -322,6 +281,12 @@ class SuyoraTexApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SuyoraTex - Multi-Theme LaTeX Editor")
+
+        # --- ADDED: Load Window Icon from current directory ---
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(script_dir, "logo.svg")
+        self.setWindowIcon(QIcon(icon_path))
+
         self.resize(1350, 850)
 
         self.current_file = None
@@ -337,7 +302,6 @@ class SuyoraTexApp(QMainWindow):
 
         self.init_ui()
         self.init_shortcuts()
-
         self.change_theme("Tokyo Night")
 
     def init_ui(self):
@@ -350,7 +314,6 @@ class SuyoraTexApp(QMainWindow):
     def setup_welcome_page(self):
         self.welcome_page = QWidget()
         layout = QVBoxLayout(self.welcome_page)
-
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.theme_combo_welcome = QComboBox()
@@ -359,38 +322,29 @@ class SuyoraTexApp(QMainWindow):
         top_bar.addWidget(QLabel("🎨 Theme:"))
         top_bar.addWidget(self.theme_combo_welcome)
         layout.addLayout(top_bar)
-
         layout.addStretch()
-
         title = QLabel("SuyoraTex Editor")
         title.setObjectName("WelcomeTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         subtitle = QLabel("A fast, live-preview LaTeX editor with dynamic themes.")
         subtitle.setObjectName("WelcomeSubtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         btn_new = QPushButton("📝 CREATE NEW")
         btn_new.setObjectName("WelcomeBtnNew")
         btn_new.clicked.connect(self.action_new_file)
-
         btn_open = QPushButton("📂 OPEN FILE")
         btn_open.setObjectName("WelcomeBtnOpen")
         btn_open.clicked.connect(self.action_open_file)
-
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addSpacing(60)
-
         btn_layout = QHBoxLayout()
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.setSpacing(40)
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_open)
-
         layout.addLayout(btn_layout)
         layout.addStretch()
-
         self.stacked_widget.addWidget(self.welcome_page)
 
     def setup_workspace_page(self):
@@ -400,7 +354,6 @@ class SuyoraTexApp(QMainWindow):
         main_page_layout.setContentsMargins(0, 0, 0, 0)
         main_page_layout.addWidget(self.root_splitter)
 
-        # --- SIDEBAR ---
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
         sidebar.setMinimumWidth(160)
@@ -420,123 +373,96 @@ class SuyoraTexApp(QMainWindow):
         make_sidebar_btn("📂 OPEN", "SidebarBtnOpen", self.action_open_file)
         make_sidebar_btn("💾 SAVE", "SidebarBtnSave", self.action_save_file)
         make_sidebar_btn("🖨️ PDF", "SidebarBtnPdf", self.action_export_pdf)
-
         sidebar_layout.addStretch()
-
         self.theme_combo_side = QComboBox()
         self.theme_combo_side.addItems(THEMES.keys())
         self.theme_combo_side.currentTextChanged.connect(self.change_theme)
         sidebar_layout.addWidget(QLabel("🎨 Theme:"))
         sidebar_layout.addWidget(self.theme_combo_side)
-
         self.root_splitter.addWidget(sidebar)
 
-        # --- WORKSPACE ---
         self.workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        # --- EDITOR PANEL ---
         editor_panel = QWidget()
         editor_layout = QVBoxLayout(editor_panel)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
 
-        # FIND BAR (Hidden by default)
         self.find_bar = QWidget()
         self.find_bar.setObjectName("FindBar")
         find_layout = QHBoxLayout(self.find_bar)
         find_layout.setContentsMargins(10, 5, 10, 5)
-
         self.find_input = QLineEdit()
         self.find_input.setObjectName("FindInput")
         self.find_input.setPlaceholderText("Find text...")
-        self.find_input.returnPressed.connect(
-            self.find_next
-        )  # Pressing Enter finds next
-
+        self.find_input.returnPressed.connect(self.find_next)
         btn_find_prev = QPushButton("▲ Prev")
         btn_find_prev.setProperty("class", "FindBtn")
         btn_find_prev.clicked.connect(self.find_prev)
-
         btn_find_next = QPushButton("▼ Next")
         btn_find_next.setProperty("class", "FindBtn")
         btn_find_next.clicked.connect(self.find_next)
-
         btn_find_close = QPushButton("✖")
         btn_find_close.setProperty("class", "FindBtn")
         btn_find_close.clicked.connect(self.hide_find_bar)
-
         find_layout.addWidget(QLabel("🔍"))
         find_layout.addWidget(self.find_input)
         find_layout.addWidget(btn_find_prev)
         find_layout.addWidget(btn_find_next)
         find_layout.addWidget(btn_find_close)
-
-        self.find_bar.hide()  # Hidden initially
+        self.find_bar.hide()
         editor_layout.addWidget(self.find_bar)
 
-        # Text Editor
         self.editor = QPlainTextEdit()
         font = QFont("Monospace", 13)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.editor.setFont(font)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.editor.textChanged.connect(self.on_text_changed)
-
         self.status_bar = QLabel("READY.")
         self.status_bar.setObjectName("StatusLabel")
         self.set_status_state("READY.", "normal")
-
         editor_layout.addWidget(self.editor)
         editor_layout.addWidget(self.status_bar)
         self.workspace_splitter.addWidget(editor_panel)
 
-        # --- PDF VIEWER PANEL ---
         pdf_panel = QWidget()
         pdf_layout = QVBoxLayout(pdf_panel)
         pdf_layout.setContentsMargins(0, 0, 0, 0)
         pdf_layout.setSpacing(0)
-
         toolbar = QWidget()
         toolbar.setObjectName("Toolbar")
         toolbar_layout = QHBoxLayout(toolbar)
         toolbar_layout.setContentsMargins(15, 10, 15, 10)
-
         btn_out = QPushButton("ZOOM -")
         btn_out.clicked.connect(self.zoom_out)
         btn_reset = QPushButton("RESET")
         btn_reset.clicked.connect(self.zoom_reset)
         btn_in = QPushButton("ZOOM +")
         btn_in.clicked.connect(self.zoom_in)
-
         toolbar_layout.addWidget(btn_out)
         toolbar_layout.addWidget(btn_reset)
         toolbar_layout.addWidget(btn_in)
         toolbar_layout.addStretch()
-
         pdf_layout.addWidget(toolbar)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
         self.pdf_container = QWidget()
         self.pdf_content_layout = QVBoxLayout(self.pdf_container)
         self.pdf_content_layout.setAlignment(
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter
         )
         self.scroll_area.setWidget(self.pdf_container)
-
         pdf_layout.addWidget(self.scroll_area)
         self.workspace_splitter.addWidget(pdf_panel)
 
         self.workspace_splitter.setSizes([600, 600])
         self.root_splitter.addWidget(self.workspace_splitter)
         self.root_splitter.setSizes([180, 1200])
-
         self.stacked_widget.addWidget(self.workspace_page)
 
     def init_shortcuts(self):
-        # Global Shortcuts
         QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self.zoom_in)
         QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self.zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self.zoom_out)
@@ -545,16 +471,11 @@ class SuyoraTexApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(
             self.action_export_pdf
         )
-
-        # Find Shortcuts
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.show_find_bar)
-
-        # Pressing Escape inside the find input closes it
         shortcut_esc = QShortcut(QKeySequence("Esc"), self.find_input)
         shortcut_esc.setContext(Qt.ShortcutContext.WidgetShortcut)
         shortcut_esc.activated.connect(self.hide_find_bar)
 
-    # --- FIND FUNCTIONALITY ---
     def show_find_bar(self):
         if self.stacked_widget.currentIndex() == 1:
             self.find_bar.show()
@@ -569,14 +490,10 @@ class SuyoraTexApp(QMainWindow):
         text = self.find_input.text()
         if not text:
             return
-
-        options = QTextDocument.FindFlag(0)  # No flags = forward search
+        options = QTextDocument.FindFlag(0)
         if backward:
             options |= QTextDocument.FindFlag.FindBackward
-
         found = self.editor.find(text, options)
-
-        # If we hit the end/beginning of the document, wrap around
         if not found:
             cursor = self.editor.textCursor()
             if backward:
@@ -584,7 +501,7 @@ class SuyoraTexApp(QMainWindow):
             else:
                 cursor.movePosition(QTextCursor.MoveOperation.Start)
             self.editor.setTextCursor(cursor)
-            self.editor.find(text, options)  # Try searching once more after wrap
+            self.editor.find(text, options)
 
     def find_next(self):
         self.execute_find(backward=False)
@@ -592,11 +509,9 @@ class SuyoraTexApp(QMainWindow):
     def find_prev(self):
         self.execute_find(backward=True)
 
-    # --- THEMES & FILE IO ---
     def change_theme(self, theme_name):
         if theme_name in THEMES:
             QApplication.instance().setStyleSheet(THEMES[theme_name])
-
             self.theme_combo_welcome.blockSignals(True)
             self.theme_combo_side.blockSignals(True)
             self.theme_combo_welcome.setCurrentText(theme_name)
@@ -640,14 +555,12 @@ class SuyoraTexApp(QMainWindow):
     def action_save_file(self):
         if self.stacked_widget.currentIndex() != 1:
             return
-
         if not self.current_file:
             dialog = CustomFileDialog(mode="save", extension=".tex", parent=self)
             if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
                 self.current_file = dialog.selected_path
             else:
                 return
-
         try:
             with open(self.current_file, "w", encoding="utf-8") as f:
                 f.write(self.editor.toPlainText())
@@ -662,7 +575,6 @@ class SuyoraTexApp(QMainWindow):
         if not os.path.exists(self.pdf_file):
             QMessageBox.warning(self, "WARNING", "No compiled PDF exists yet.")
             return
-
         dialog = CustomFileDialog(mode="save", extension=".pdf", parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
             try:
@@ -687,11 +599,9 @@ class SuyoraTexApp(QMainWindow):
     def compile_latex(self):
         self.set_status_state("COMPILING...", "working")
         QApplication.processEvents()
-
         latex_code = self.editor.toPlainText()
         with open(self.live_tex_file, "w", encoding="utf-8") as f:
             f.write(latex_code)
-
         working_dir = (
             os.path.dirname(self.current_file)
             if self.current_file
@@ -704,7 +614,6 @@ class SuyoraTexApp(QMainWindow):
             self.temp_dir.name,
             self.live_tex_file,
         ]
-
         try:
             result = subprocess.run(
                 command,
@@ -737,7 +646,6 @@ class SuyoraTexApp(QMainWindow):
                 page = doc.load_page(page_num)
                 matrix = fitz.Matrix(self.zoom_factor, self.zoom_factor)
                 pix = page.get_pixmap(matrix=matrix, alpha=False)
-
                 img = QImage(
                     pix.samples,
                     pix.width,
@@ -778,18 +686,15 @@ class SuyoraTexApp(QMainWindow):
 \usepackage{amsmath}
 
 \begin{document}
-
 \begin{center}
     \Huge \textbf{SuyoraTex Editor}
 \end{center}
 
 \vspace{1cm}
-
 \noindent \textbf{New Feature Added: Find Text!} \\
 Press \texttt{Ctrl + F} on your keyboard right now to open the search bar at the top of the editor.
 
 \vspace{0.5cm}
-
 \noindent \textbf{How to use the Find bar:}
 \begin{itemize}
     \item Type what you are looking for.
@@ -800,11 +705,9 @@ Press \texttt{Ctrl + F} on your keyboard right now to open the search bar at the
 \end{itemize}
 
 \vspace{1cm}
-
 \begin{equation}
     f(x) = \int_{-\infty}^{\infty} \hat{f}(\xi)\,e^{2 \pi i \xi x} \,d\xi
 \end{equation}
-
 \end{document}
 """
 

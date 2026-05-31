@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SuyoraTex
+Comment=A frictionless LaTeX Live Editor
+Exec=suyoratex %F
+Icon=suyoratex
+Terminal=false
+Type=Application
+Categories=Office;TextEditor;Education;
+MimeType=text/x-tex;
