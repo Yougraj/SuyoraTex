@@ -1,8 +1,10 @@
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import fitz  # PyMuPDF
 from PyQt6.QtCore import QDir, QModelIndex, Qt, QTimer
@@ -187,7 +189,7 @@ THEMES = {
 
 # --- CUSTOM FILE EXPLORER DIALOG ---
 class CustomFileDialog(QDialog):
-    def __init__(self, mode="open", extension=".tex", parent=None):
+    def __init__(self, mode="open", extension=".tex", start_dir=None, parent=None):
         super().__init__(parent)
         self.mode = mode
         self.extension = extension
@@ -196,33 +198,46 @@ class CustomFileDialog(QDialog):
             f"{'Open' if mode == 'open' else 'Save'} File ({extension})"
         )
         self.resize(800, 600)
+
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
+
         title = QLabel(f" {'📂 OPEN FILE' if mode == 'open' else '💾 SAVE FILE'} ")
         title.setObjectName("ExplorerTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
+
         path_layout = QHBoxLayout()
         btn_up = QPushButton("⬆ UP DIR")
         btn_up.clicked.connect(self.go_up)
+
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
         path_layout.addWidget(btn_up)
         path_layout.addWidget(self.path_edit)
         layout.addLayout(path_layout)
+
         self.model = QFileSystemModel()
         self.model.setRootPath("")
+
         if self.mode == "open":
             self.model.setNameFilters([f"*{self.extension}"])
             self.model.setNameFilterDisables(False)
+
         self.list_view = QListView()
         self.list_view.setModel(self.model)
-        self.list_view.setRootIndex(self.model.index(QDir.homePath()))
-        self.path_edit.setText(QDir.homePath())
+
+        # Set default directory logic
+        if not start_dir or not os.path.isdir(start_dir):
+            start_dir = QDir.homePath()
+        self.list_view.setRootIndex(self.model.index(start_dir))
+        self.path_edit.setText(start_dir)
+
         self.list_view.doubleClicked.connect(self.on_double_click)
         self.list_view.clicked.connect(self.on_single_click)
         layout.addWidget(self.list_view)
+
         bottom_layout = QHBoxLayout()
         self.name_input = QLineEdit()
         if self.mode == "save":
@@ -230,6 +245,7 @@ class CustomFileDialog(QDialog):
         else:
             self.name_input.setPlaceholderText("Select a file from the list above...")
             self.name_input.setReadOnly(True)
+
         btn_action = QPushButton("SAVE IT!" if mode == "save" else "OPEN IT!")
         btn_action.setObjectName("DialogBtnAction")
         btn_action.clicked.connect(self.accept_action)
@@ -282,7 +298,7 @@ class SuyoraTexApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("SuyoraTex - Multi-Theme LaTeX Editor")
 
-        # --- ADDED: Load Window Icon from current directory ---
+        # Load Window Icon
         script_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(script_dir, "logo.svg")
         self.setWindowIcon(QIcon(icon_path))
@@ -300,9 +316,51 @@ class SuyoraTexApp(QMainWindow):
         self.compile_timer.setInterval(800)
         self.compile_timer.timeout.connect(self.compile_latex)
 
+        # Load User Settings
+        self.settings = self.load_settings()
+
         self.init_ui()
         self.init_shortcuts()
-        self.change_theme("Tokyo Night")
+
+        # Apply Theme (Defaults to Neobrutalism if not set)
+        self.change_theme(self.settings.get("theme", "Neobrutalism"))
+
+    # --- SETTINGS MANAGEMENT ---
+    def load_settings(self):
+        config_dir = Path.home() / ".config" / "suyoratex"
+        config_file = config_dir / "settings.json"
+        if config_file.exists():
+            try:
+                with open(config_file, "r") as f:
+                    return json.load(f)
+            except:
+                pass
+        return {
+            "theme": "Neobrutalism",
+            "recent_files": [],
+            "last_dir": QDir.homePath(),
+        }
+
+    def save_settings(self):
+        config_dir = Path.home() / ".config" / "suyoratex"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "settings.json"
+        try:
+            with open(config_file, "w") as f:
+                json.dump(self.settings, f)
+        except:
+            pass
+
+    def add_to_recent(self, path):
+        recents = self.settings.get("recent_files", [])
+        if path in recents:
+            recents.remove(path)
+        recents.insert(0, path)
+        recents = recents[:5]  # Keep only the top 5 recent files
+        self.settings["recent_files"] = recents
+        self.settings["last_dir"] = os.path.dirname(path)
+        self.save_settings()
+        self.update_recent_files_ui()
 
     def init_ui(self):
         self.stacked_widget = QStackedWidget()
@@ -314,6 +372,7 @@ class SuyoraTexApp(QMainWindow):
     def setup_welcome_page(self):
         self.welcome_page = QWidget()
         layout = QVBoxLayout(self.welcome_page)
+
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.theme_combo_welcome = QComboBox()
@@ -322,6 +381,7 @@ class SuyoraTexApp(QMainWindow):
         top_bar.addWidget(QLabel("🎨 Theme:"))
         top_bar.addWidget(self.theme_combo_welcome)
         layout.addLayout(top_bar)
+
         layout.addStretch()
         title = QLabel("SuyoraTex Editor")
         title.setObjectName("WelcomeTitle")
@@ -329,23 +389,64 @@ class SuyoraTexApp(QMainWindow):
         subtitle = QLabel("A fast, live-preview LaTeX editor with dynamic themes.")
         subtitle.setObjectName("WelcomeSubtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         btn_new = QPushButton("📝 CREATE NEW")
         btn_new.setObjectName("WelcomeBtnNew")
         btn_new.clicked.connect(self.action_new_file)
         btn_open = QPushButton("📂 OPEN FILE")
         btn_open.setObjectName("WelcomeBtnOpen")
         btn_open.clicked.connect(self.action_open_file)
+
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addSpacing(60)
+        layout.addSpacing(40)
+
         btn_layout = QHBoxLayout()
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.setSpacing(40)
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_open)
         layout.addLayout(btn_layout)
+
+        # Add Recent Files UI
+        layout.addSpacing(40)
+        recent_label = QLabel("🕒 RECENT FILES")
+        recent_label.setObjectName("ExplorerTitle")  # Reuse style
+        recent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(recent_label)
+
+        self.recent_files_layout = QVBoxLayout()
+        self.recent_files_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.recent_files_layout.setSpacing(10)
+        layout.addLayout(self.recent_files_layout)
+
+        self.update_recent_files_ui()
         layout.addStretch()
+
         self.stacked_widget.addWidget(self.welcome_page)
+
+    def update_recent_files_ui(self):
+        # Clear existing items
+        for i in reversed(range(self.recent_files_layout.count())):
+            widget = self.recent_files_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        recent_files = self.settings.get("recent_files", [])
+        if not recent_files:
+            lbl = QLabel("No recent files yet.")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.recent_files_layout.addWidget(lbl)
+        else:
+            for file_path in recent_files:
+                if os.path.exists(file_path):
+                    btn = QPushButton(f"📄 {os.path.basename(file_path)}")
+                    btn.setToolTip(file_path)
+                    btn.setMinimumWidth(300)
+                    btn.clicked.connect(
+                        lambda checked, p=file_path: self.load_file_into_editor(p)
+                    )
+                    self.recent_files_layout.addWidget(btn)
 
     def setup_workspace_page(self):
         self.workspace_page = QWidget()
@@ -519,6 +620,11 @@ class SuyoraTexApp(QMainWindow):
             self.theme_combo_welcome.blockSignals(False)
             self.theme_combo_side.blockSignals(False)
 
+            # Save the new theme choice to settings
+            if hasattr(self, "settings"):
+                self.settings["theme"] = theme_name
+                self.save_settings()
+
     def set_status_state(self, text, state="normal"):
         self.status_bar.setText(text)
         self.status_bar.setProperty("state", state)
@@ -534,29 +640,41 @@ class SuyoraTexApp(QMainWindow):
         self.setWindowTitle("SuyoraTex - UNTITLED")
         self.compile_latex()
 
+    def load_file_into_editor(self, path):
+        if not os.path.exists(path):
+            QMessageBox.critical(self, "ERROR", f"File no longer exists:\n{path}")
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.current_file = path
+            self.editor.blockSignals(True)
+            self.editor.setPlainText(content)
+            self.editor.blockSignals(False)
+            self.stacked_widget.setCurrentIndex(1)
+            self.setWindowTitle(f"SuyoraTex - {os.path.basename(self.current_file)}")
+            self.add_to_recent(path)
+            self.compile_latex()
+        except Exception as e:
+            QMessageBox.critical(self, "ERROR", f"Could not open file:\n{e}")
+
     def action_open_file(self):
-        dialog = CustomFileDialog(mode="open", extension=".tex", parent=self)
+        start_dir = self.settings.get("last_dir", QDir.homePath())
+        dialog = CustomFileDialog(
+            mode="open", extension=".tex", start_dir=start_dir, parent=self
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
-            try:
-                with open(dialog.selected_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                self.current_file = dialog.selected_path
-                self.editor.blockSignals(True)
-                self.editor.setPlainText(content)
-                self.editor.blockSignals(False)
-                self.stacked_widget.setCurrentIndex(1)
-                self.setWindowTitle(
-                    f"SuyoraTex - {os.path.basename(self.current_file)}"
-                )
-                self.compile_latex()
-            except Exception as e:
-                QMessageBox.critical(self, "ERROR", f"Could not open file:\n{e}")
+            self.load_file_into_editor(dialog.selected_path)
 
     def action_save_file(self):
         if self.stacked_widget.currentIndex() != 1:
             return
         if not self.current_file:
-            dialog = CustomFileDialog(mode="save", extension=".tex", parent=self)
+            start_dir = self.settings.get("last_dir", QDir.homePath())
+            dialog = CustomFileDialog(
+                mode="save", extension=".tex", start_dir=start_dir, parent=self
+            )
             if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
                 self.current_file = dialog.selected_path
             else:
@@ -566,6 +684,7 @@ class SuyoraTexApp(QMainWindow):
                 f.write(self.editor.toPlainText())
             self.setWindowTitle(f"SuyoraTex - {os.path.basename(self.current_file)}")
             self.set_status_state(f"SUCCESS: SAVED AT {self.current_file}", "success")
+            self.add_to_recent(self.current_file)
         except Exception as e:
             QMessageBox.critical(self, "ERROR", f"Could not save file:\n{e}")
 
@@ -575,7 +694,12 @@ class SuyoraTexApp(QMainWindow):
         if not os.path.exists(self.pdf_file):
             QMessageBox.warning(self, "WARNING", "No compiled PDF exists yet.")
             return
-        dialog = CustomFileDialog(mode="save", extension=".pdf", parent=self)
+        dialog = CustomFileDialog(
+            mode="save",
+            extension=".pdf",
+            start_dir=self.settings.get("last_dir"),
+            parent=self,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
             try:
                 shutil.copy(self.pdf_file, dialog.selected_path)
