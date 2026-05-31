@@ -6,8 +6,6 @@ import tempfile
 
 import fitz  # PyMuPDF
 from PyQt6.QtCore import QDir, QModelIndex, Qt, QTimer
-
-# QFileSystemModel is properly imported from QtGui
 from PyQt6.QtGui import (
     QFileSystemModel,
     QFont,
@@ -15,6 +13,8 @@ from PyQt6.QtGui import (
     QKeySequence,
     QPixmap,
     QShortcut,
+    QTextCursor,
+    QTextDocument,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -66,6 +66,8 @@ def get_standard_css(
     QPushButton.SidebarBtn {{ background-color: transparent; border: none; text-align: left; padding: 12px; }}
     QPushButton.SidebarBtn:hover {{ background-color: {bg_hover}; color: {accent}; }}
     
+    QPushButton.FindBtn {{ padding: 6px 10px; border-radius: 4px; font-size: 12px; }}
+    
     QPushButton#WelcomeBtnNew, QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction {{
         font-size: 16px; padding: 15px 30px; background-color: {accent}; color: {accent_text}; border: none;
     }}
@@ -75,6 +77,7 @@ def get_standard_css(
 
     QLineEdit {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 10px; border-radius: 4px; }}
     QLineEdit:focus {{ border: 1px solid {accent}; }}
+    QLineEdit#FindInput {{ padding: 6px; border-radius: 4px; }}
     
     QListView {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; border-radius: 6px; outline: none; padding: 5px; }}
     QListView::item {{ padding: 10px; border-radius: 4px; }}
@@ -84,6 +87,7 @@ def get_standard_css(
     QSplitter::handle {{ background-color: {border}; width: 2px; }}
     QWidget#Sidebar {{ background-color: {bg_alt}; border-right: 1px solid {border}; }}
     QWidget#Toolbar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
+    QWidget#FindBar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
     
     QPlainTextEdit {{
         background-color: {bg_main}; color: {fg_main}; border: none; padding: 15px;
@@ -106,7 +110,6 @@ def get_standard_css(
     """
 
 
-# Theme Dictionary
 THEMES = {
     "Tokyo Night": get_standard_css(
         bg_main="#1a1b26",
@@ -169,11 +172,14 @@ THEMES = {
         QPushButton#SidebarBtnSave { background-color: #FF90E8; }
         QPushButton#SidebarBtnPdf { background-color: #00C4CC; }
         
+        QPushButton.FindBtn { padding: 5px 15px; font-size: 12px; }
+        
         QPushButton#WelcomeBtnNew { background-color: #42E6A4; font-size: 18px; padding: 20px 40px; }
         QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction { background-color: #FF90E8; font-size: 18px; padding: 20px 40px; }
         
         QLineEdit { background-color: #FFFFFF; color: #000000; border: 3px solid #000000; border-right: 5px solid #000000; border-bottom: 5px solid #000000; padding: 12px; font-size: 15px; font-weight: 900; }
         QLineEdit:focus { background-color: #E0F7FA; outline: none; }
+        QLineEdit#FindInput { padding: 6px; }
         
         QListView { background-color: #FFFFFF; color: #000000; border: 3px solid #000000; border-right: 7px solid #000000; border-bottom: 7px solid #000000; font-size: 15px; font-weight: bold; padding: 5px; outline: none; }
         QListView::item { padding: 12px; border-bottom: 2px solid #000000; }
@@ -183,6 +189,7 @@ THEMES = {
         QSplitter::handle { background-color: #000000; width: 6px; }
         QWidget#Sidebar { background-color: #F4F0EA; border-right: 6px solid #000000; }
         QWidget#Toolbar { background-color: #F4F0EA; border-bottom: 6px solid #000000; }
+        QWidget#FindBar { background-color: #F4F0EA; border-bottom: 6px solid #000000; }
         
         QPlainTextEdit { background-color: #FFFFFF; color: #000000; border: none; padding: 15px; font-size: 15px; font-weight: bold; selection-background-color: #FF90E8; selection-color: #000000; }
         QScrollArea { background-color: #F4F0EA; border: none; }
@@ -311,10 +318,10 @@ class CustomFileDialog(QDialog):
 
 
 # --- MAIN APPLICATION ---
-class ArchTexApp(QMainWindow):
+class SuyoraTexApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ArchTex - Multi-Theme LaTeX Editor")
+        self.setWindowTitle("SuyoraTex - Multi-Theme LaTeX Editor")
         self.resize(1350, 850)
 
         self.current_file = None
@@ -331,7 +338,6 @@ class ArchTexApp(QMainWindow):
         self.init_ui()
         self.init_shortcuts()
 
-        # Apply Default Theme (Tokyo Night is a great default)
         self.change_theme("Tokyo Night")
 
     def init_ui(self):
@@ -345,7 +351,6 @@ class ArchTexApp(QMainWindow):
         self.welcome_page = QWidget()
         layout = QVBoxLayout(self.welcome_page)
 
-        # Top bar for theme switcher on welcome screen
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.theme_combo_welcome = QComboBox()
@@ -357,7 +362,7 @@ class ArchTexApp(QMainWindow):
 
         layout.addStretch()
 
-        title = QLabel("ArchTex Editor")
+        title = QLabel("SuyoraTex Editor")
         title.setObjectName("WelcomeTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -429,12 +434,47 @@ class ArchTexApp(QMainWindow):
         # --- WORKSPACE ---
         self.workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Editor
+        # --- EDITOR PANEL ---
         editor_panel = QWidget()
         editor_layout = QVBoxLayout(editor_panel)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
 
+        # FIND BAR (Hidden by default)
+        self.find_bar = QWidget()
+        self.find_bar.setObjectName("FindBar")
+        find_layout = QHBoxLayout(self.find_bar)
+        find_layout.setContentsMargins(10, 5, 10, 5)
+
+        self.find_input = QLineEdit()
+        self.find_input.setObjectName("FindInput")
+        self.find_input.setPlaceholderText("Find text...")
+        self.find_input.returnPressed.connect(
+            self.find_next
+        )  # Pressing Enter finds next
+
+        btn_find_prev = QPushButton("▲ Prev")
+        btn_find_prev.setProperty("class", "FindBtn")
+        btn_find_prev.clicked.connect(self.find_prev)
+
+        btn_find_next = QPushButton("▼ Next")
+        btn_find_next.setProperty("class", "FindBtn")
+        btn_find_next.clicked.connect(self.find_next)
+
+        btn_find_close = QPushButton("✖")
+        btn_find_close.setProperty("class", "FindBtn")
+        btn_find_close.clicked.connect(self.hide_find_bar)
+
+        find_layout.addWidget(QLabel("🔍"))
+        find_layout.addWidget(self.find_input)
+        find_layout.addWidget(btn_find_prev)
+        find_layout.addWidget(btn_find_next)
+        find_layout.addWidget(btn_find_close)
+
+        self.find_bar.hide()  # Hidden initially
+        editor_layout.addWidget(self.find_bar)
+
+        # Text Editor
         self.editor = QPlainTextEdit()
         font = QFont("Monospace", 13)
         font.setStyleHint(QFont.StyleHint.Monospace)
@@ -450,7 +490,7 @@ class ArchTexApp(QMainWindow):
         editor_layout.addWidget(self.status_bar)
         self.workspace_splitter.addWidget(editor_panel)
 
-        # PDF Viewer
+        # --- PDF VIEWER PANEL ---
         pdf_panel = QWidget()
         pdf_layout = QVBoxLayout(pdf_panel)
         pdf_layout.setContentsMargins(0, 0, 0, 0)
@@ -496,6 +536,7 @@ class ArchTexApp(QMainWindow):
         self.stacked_widget.addWidget(self.workspace_page)
 
     def init_shortcuts(self):
+        # Global Shortcuts
         QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self.zoom_in)
         QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self.zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self.zoom_out)
@@ -505,12 +546,57 @@ class ArchTexApp(QMainWindow):
             self.action_export_pdf
         )
 
+        # Find Shortcuts
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.show_find_bar)
+
+        # Pressing Escape inside the find input closes it
+        shortcut_esc = QShortcut(QKeySequence("Esc"), self.find_input)
+        shortcut_esc.setContext(Qt.ShortcutContext.WidgetShortcut)
+        shortcut_esc.activated.connect(self.hide_find_bar)
+
+    # --- FIND FUNCTIONALITY ---
+    def show_find_bar(self):
+        if self.stacked_widget.currentIndex() == 1:
+            self.find_bar.show()
+            self.find_input.setFocus()
+            self.find_input.selectAll()
+
+    def hide_find_bar(self):
+        self.find_bar.hide()
+        self.editor.setFocus()
+
+    def execute_find(self, backward=False):
+        text = self.find_input.text()
+        if not text:
+            return
+
+        options = QTextDocument.FindFlag(0)  # No flags = forward search
+        if backward:
+            options |= QTextDocument.FindFlag.FindBackward
+
+        found = self.editor.find(text, options)
+
+        # If we hit the end/beginning of the document, wrap around
+        if not found:
+            cursor = self.editor.textCursor()
+            if backward:
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+            else:
+                cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(text, options)  # Try searching once more after wrap
+
+    def find_next(self):
+        self.execute_find(backward=False)
+
+    def find_prev(self):
+        self.execute_find(backward=True)
+
+    # --- THEMES & FILE IO ---
     def change_theme(self, theme_name):
         if theme_name in THEMES:
-            # Apply globally so dialogs inherit it
             QApplication.instance().setStyleSheet(THEMES[theme_name])
 
-            # Sync combo boxes silently
             self.theme_combo_welcome.blockSignals(True)
             self.theme_combo_side.blockSignals(True)
             self.theme_combo_welcome.setCurrentText(theme_name)
@@ -521,7 +607,6 @@ class ArchTexApp(QMainWindow):
     def set_status_state(self, text, state="normal"):
         self.status_bar.setText(text)
         self.status_bar.setProperty("state", state)
-        # Force Qt to re-evaluate the stylesheet based on the new property
         self.status_bar.style().unpolish(self.status_bar)
         self.status_bar.style().polish(self.status_bar)
 
@@ -531,7 +616,7 @@ class ArchTexApp(QMainWindow):
         self.editor.setPlainText(self.get_default_latex())
         self.editor.blockSignals(False)
         self.stacked_widget.setCurrentIndex(1)
-        self.setWindowTitle("ArchTex - UNTITLED")
+        self.setWindowTitle("SuyoraTex - UNTITLED")
         self.compile_latex()
 
     def action_open_file(self):
@@ -545,7 +630,9 @@ class ArchTexApp(QMainWindow):
                 self.editor.setPlainText(content)
                 self.editor.blockSignals(False)
                 self.stacked_widget.setCurrentIndex(1)
-                self.setWindowTitle(f"ArchTex - {os.path.basename(self.current_file)}")
+                self.setWindowTitle(
+                    f"SuyoraTex - {os.path.basename(self.current_file)}"
+                )
                 self.compile_latex()
             except Exception as e:
                 QMessageBox.critical(self, "ERROR", f"Could not open file:\n{e}")
@@ -564,7 +651,7 @@ class ArchTexApp(QMainWindow):
         try:
             with open(self.current_file, "w", encoding="utf-8") as f:
                 f.write(self.editor.toPlainText())
-            self.setWindowTitle(f"ArchTex - {os.path.basename(self.current_file)}")
+            self.setWindowTitle(f"SuyoraTex - {os.path.basename(self.current_file)}")
             self.set_status_state(f"SUCCESS: SAVED AT {self.current_file}", "success")
         except Exception as e:
             QMessageBox.critical(self, "ERROR", f"Could not save file:\n{e}")
@@ -591,7 +678,7 @@ class ArchTexApp(QMainWindow):
 
     def action_close_to_home(self):
         self.stacked_widget.setCurrentIndex(0)
-        self.setWindowTitle("ArchTex Editor")
+        self.setWindowTitle("SuyoraTex Editor")
 
     def on_text_changed(self):
         self.set_status_state("WAITING TO COMPILE...", "working")
@@ -693,22 +780,23 @@ class ArchTexApp(QMainWindow):
 \begin{document}
 
 \begin{center}
-    \Huge \textbf{ArchTex Editor}
+    \Huge \textbf{SuyoraTex Editor}
 \end{center}
 
 \vspace{1cm}
 
-\noindent \textbf{Live Theme Switching Enabled!} You can change themes dynamically using the dropdown in the sidebar.
+\noindent \textbf{New Feature Added: Find Text!} \\
+Press \texttt{Ctrl + F} on your keyboard right now to open the search bar at the top of the editor.
 
 \vspace{0.5cm}
 
-\noindent \textbf{Available Themes:}
+\noindent \textbf{How to use the Find bar:}
 \begin{itemize}
-    \item \textbf{Tokyo Night} (Default - Deep Blue/Purple)
-    \item \textbf{Dark} (Classic VSCode style)
-    \item \textbf{Light} (Clean white canvas)
-    \item \textbf{Green} (Forest/Hacker vibe)
-    \item \textbf{Neobrutalism} (Loud, thick borders)
+    \item Type what you are looking for.
+    \item Press \texttt{Enter} to instantly jump to the next matching word.
+    \item Use the \textbf{Prev} / \textbf{Next} buttons to navigate.
+    \item Press \texttt{Esc} while in the search box to close it and return to the editor.
+    \item It even loops around the document automatically!
 \end{itemize}
 
 \vspace{1cm}
@@ -728,6 +816,6 @@ class ArchTexApp(QMainWindow):
 if __name__ == "__main__":
     os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
     app = QApplication(sys.argv)
-    window = ArchTexApp()
+    window = SuyoraTexApp()
     window.show()
     sys.exit(app.exec())

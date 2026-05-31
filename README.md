@@ -1,8 +1,8 @@
-Here is the complete guide on how to install dependencies across different Linux distributions and how to use the ArchTex Live Editor.
+Here is the complete guide on how to install dependencies across different Linux distributions and how to use the SuyoraTex Live Editor.
 
 ---
 
-# 🚀 ArchTex Installation Guide
+# 🚀 SuyoraTex Installation Guide
 
 To run this application, your system needs two things:
 
@@ -64,9 +64,9 @@ python main.py
 
 ---
 
-# 📖 How to Use ArchTex
+# 📖 How to Use SuyoraTex
 
-ArchTex is designed to be completely frictionless. Here is how to get the most out of it:
+SuyoraTex is designed to be completely frictionless. Here is how to get the most out of it:
 
 ### The Welcome Screen
 
@@ -93,7 +93,7 @@ The workspace is split into three main areas. You can **drag the lines** separat
 
 ### The Custom File Explorer
 
-Instead of using your standard, boring system file picker, ArchTex uses a custom theme-aware file explorer.
+Instead of using your standard, boring system file picker, SuyoraTex uses a custom theme-aware file explorer.
 
 - **Navigation:** Double-click folders to enter them, or click "⬆ UP DIR" to go back.
 - **Smart Typing:** When saving a file, just type the name (e.g., `my_assignment`). The app will automatically append `.tex` or `.pdf` for you!
@@ -121,4 +121,4 @@ For maximum productivity, you don't need to use your mouse:
 
 ### 💡 Pro-Tip for Images
 
-If your LaTeX document uses images (e.g., `\includegraphics{my_graph.png}`), simply put the image in the **same folder** as your saved `.tex` file. When you open the `.tex` file in ArchTex, the background compiler automatically sets its working directory to that folder, so it will find your images perfectly!
+If your LaTeX document uses images (e.g., `\includegraphics{my_graph.png}`), simply put the image in the **same folder** as your saved `.tex` file. When you open the `.tex` file in SuyoraTex, the background compiler automatically sets its working directory to that folder, so it will find your images perfectly!
