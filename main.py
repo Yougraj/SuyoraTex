@@ -1,27 +1,40 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-import fitz  # PyMuPDF
-from PyQt6.QtCore import QDir, QModelIndex, Qt, QTimer
-from PyQt6.QtGui import QIcon  # <--- Added QIcon
+import fitz
+from PyQt6.QtCore import (
+    QDir,
+    QModelIndex,
+    QRegularExpression,
+    Qt,
+    QThread,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import (
+    QColor,
     QFileSystemModel,
     QFont,
+    QIcon,
     QImage,
     QKeySequence,
     QPixmap,
     QShortcut,
+    QSyntaxHighlighter,
+    QTextCharFormat,
     QTextCursor,
     QTextDocument,
 )
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCompleter,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -37,6 +50,23 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+# --- LOCAL PYTHON PACKAGES ---
+try:
+    from spellchecker import SpellChecker
+
+    HAS_SPELLCHECK = True
+    spell = SpellChecker()
+except ImportError:
+    HAS_SPELLCHECK = False
+
+try:
+    from PyDictionary import PyDictionary
+
+    HAS_DICT = True
+    pydict = PyDictionary()
+except ImportError:
+    HAS_DICT = False
 
 
 # --- THEME ENGINE ---
@@ -57,45 +87,34 @@ def get_standard_css(
     QLabel#WelcomeTitle {{ font-size: 45px; color: {accent}; }}
     QLabel#WelcomeSubtitle {{ font-size: 16px; color: {fg_dim}; }}
     QLabel#ExplorerTitle {{ font-size: 24px; color: {accent}; padding: 10px; }}
-    
     QPushButton {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 10px; border-radius: 6px; font-weight: bold; }}
     QPushButton:hover {{ background-color: {bg_hover}; }}
     QPushButton:pressed {{ background-color: {accent}; color: {accent_text}; }}
-    
     QPushButton.SidebarBtn {{ background-color: transparent; border: none; text-align: left; padding: 12px; }}
     QPushButton.SidebarBtn:hover {{ background-color: {bg_hover}; color: {accent}; }}
-    
     QPushButton.FindBtn {{ padding: 6px 10px; border-radius: 4px; font-size: 12px; }}
-    
     QPushButton#WelcomeBtnNew, QPushButton#WelcomeBtnOpen, QPushButton#DialogBtnAction {{ font-size: 16px; padding: 15px 30px; background-color: {accent}; color: {accent_text}; border: none; }}
     QPushButton#WelcomeBtnNew:hover, QPushButton#WelcomeBtnOpen:hover, QPushButton#DialogBtnAction:hover {{ background-color: {accent_hover}; }}
-
     QLineEdit {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 10px; border-radius: 4px; }}
     QLineEdit:focus {{ border: 1px solid {accent}; }}
     QLineEdit#FindInput {{ padding: 6px; border-radius: 4px; }}
-    
     QListView {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; border-radius: 6px; outline: none; padding: 5px; }}
     QListView::item {{ padding: 10px; border-radius: 4px; }}
     QListView::item:selected {{ background-color: {accent}; color: {accent_text}; }}
     QListView::item:hover:!selected {{ background-color: {bg_hover}; }}
-    
     QSplitter::handle {{ background-color: {border}; width: 2px; }}
     QWidget#Sidebar {{ background-color: {bg_alt}; border-right: 1px solid {border}; }}
     QWidget#Toolbar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
     QWidget#FindBar {{ background-color: {bg_alt}; border-bottom: 1px solid {border}; }}
-    
     QPlainTextEdit {{ background-color: {bg_main}; color: {fg_main}; border: none; padding: 15px; selection-background-color: {accent}; selection-color: {accent_text}; font-size: 14px; }}
-    
     QScrollArea {{ background-color: {bg_main}; border: none; }}
     QLabel#PdfPage {{ background-color: white; border: 1px solid {border}; margin: 20px; }}
-    
     QLabel#StatusLabel {{ padding: 8px; font-weight: bold; border-top: 1px solid {border}; font-size: 12px; }}
     QLabel#StatusLabel[state="normal"] {{ background-color: {bg_alt}; color: {fg_dim}; }}
     QLabel#StatusLabel[state="working"] {{ background-color: {accent}; color: {accent_text}; }}
     QLabel#StatusLabel[state="success"] {{ background-color: #4caf50; color: #ffffff; }}
     QLabel#StatusLabel[state="warning"] {{ background-color: #ff9800; color: #ffffff; }}
     QLabel#StatusLabel[state="error"] {{ background-color: #f44336; color: #ffffff; }}
-
     QComboBox {{ background-color: {bg_alt}; color: {fg_main}; border: 1px solid {border}; padding: 8px; border-radius: 4px; font-weight: bold; }}
     QComboBox::drop-down {{ border: none; }}
     QComboBox QAbstractItemView {{ background-color: {bg_alt}; color: {fg_main}; selection-background-color: {accent}; }}
@@ -135,17 +154,6 @@ THEMES = {
         accent_hover="#2b88d8",
         accent_text="#ffffff",
         border="#cccccc",
-    ),
-    "Green": get_standard_css(
-        bg_main="#0f1712",
-        bg_alt="#16221a",
-        bg_hover="#233629",
-        fg_main="#e2f0e6",
-        fg_dim="#8ba895",
-        accent="#4caf50",
-        accent_hover="#66bb6a",
-        accent_text="#ffffff",
-        border="#1f3025",
     ),
     "Neobrutalism": """
         QMainWindow, QDialog, QStackedWidget { background-color: #F4F0EA; color: #000000; }
@@ -187,6 +195,322 @@ THEMES = {
 }
 
 
+# --- BACKGROUND WORKERS FOR DICTIONARY ---
+class DictionaryWorker(QThread):
+    result_ready = pyqtSignal(str, str)
+
+    def __init__(self, word):
+        super().__init__()
+        self.word = word
+
+    def run(self):
+        if not HAS_DICT:
+            self.result_ready.emit(
+                "📖 Dictionary",
+                "PyDictionary is not installed.\nPlease run: pip install PyDictionary",
+            )
+            return
+
+        try:
+            meaning = pydict.meaning(self.word)
+            if meaning:
+                defs = []
+                for part_of_speech, descriptions in meaning.items():
+                    defs.append(f"[{part_of_speech}]: {descriptions[0]}")
+                self.result_ready.emit(f"📖 Dictionary: {self.word}", "\n\n".join(defs))
+            else:
+                self.result_ready.emit(
+                    "📖 Dictionary", f"Could not find a definition for '{self.word}'."
+                )
+        except Exception as e:
+            self.result_ready.emit("📖 Dictionary Error", str(e))
+
+
+# --- EDITOR AND HIGHLIGHTER CLASSES ---
+class LatexHighlighter(QSyntaxHighlighter):
+    def __init__(self, document):
+        super().__init__(document)
+        self.rules = []
+
+        # 1. LaTeX Commands
+        fmt_cmd = QTextCharFormat()
+        fmt_cmd.setForeground(QColor("#d32f2f"))
+        fmt_cmd.setFontWeight(QFont.Weight.Bold)
+        self.rules.append((QRegularExpression(r"\\[a-zA-Z@]+"), fmt_cmd))
+
+        # 2. Math mode
+        fmt_math = QTextCharFormat()
+        fmt_math.setForeground(QColor("#2e7d32"))
+        self.rules.append((QRegularExpression(r"\$.*?\$"), fmt_math))
+        self.rules.append((QRegularExpression(r"\\\[.*?\\\]"), fmt_math))
+
+        # 3. Comments
+        fmt_comment = QTextCharFormat()
+        fmt_comment.setForeground(QColor("#757575"))
+        fmt_comment.setFontItalic(True)
+        self.rules.append((QRegularExpression(r"%.*"), fmt_comment))
+
+        # SPELL CHECK FORMAT
+        self.spell_fmt = QTextCharFormat()
+        self.spell_fmt.setUnderlineStyle(
+            QTextCharFormat.UnderlineStyle.SpellCheckUnderline
+        )
+        self.spell_fmt.setUnderlineColor(QColor("red"))
+        self.word_regex = QRegularExpression(r"\b[A-Za-z]+\b")
+
+    def highlightBlock(self, text):
+        for pattern, format in self.rules:
+            match_iterator = pattern.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), format)
+
+        if HAS_SPELLCHECK:
+            match_iterator = self.word_regex.globalMatch(text)
+            while match_iterator.hasNext():
+                match = match_iterator.next()
+                word = match.captured()
+                start = match.capturedStart()
+                if len(word) > 1 and not (start > 0 and text[start - 1] == "\\"):
+                    if word.lower() not in spell.word_frequency.dictionary:
+                        current_format = self.format(start)
+                        current_format.setUnderlineStyle(
+                            self.spell_fmt.underlineStyle()
+                        )
+                        current_format.setUnderlineColor(
+                            self.spell_fmt.underlineColor()
+                        )
+                        self.setFormat(start, match.capturedLength(), current_format)
+
+
+class EnhancedTexEditor(QPlainTextEdit):
+    show_alert = pyqtSignal(str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.highlighter = LatexHighlighter(self.document())
+
+        # PRE-LOAD ALL WORDS FOR THE COMPLETER
+        self.word_database = [
+            "\\begin{document}",
+            "\\end{document}",
+            "\\section{}",
+            "\\subsection{}",
+            "\\textbf{}",
+            "\\textit{}",
+            "\\underline{}",
+            "\\usepackage{}",
+            "\\documentclass{}",
+            "\\item",
+            "\\begin{itemize}",
+            "\\end{itemize}",
+            "\\begin{enumerate}",
+            "\\end{enumerate}",
+            "\\begin{equation}",
+            "\\end{equation}",
+            "\\frac{}{}",
+            "\\alpha",
+            "\\beta",
+            "\\gamma",
+            "\\theta",
+            "\\includegraphics[width=\\linewidth]{}",
+            "\\label{}",
+            "\\ref{}",
+            "\\cite{}",
+        ]
+        # --- LOAD CUSTOM DICTIONARY.JSON FOR AUTO-COMPLETE ---
+        dict_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "dictionary.json"
+        )
+        if os.path.exists(dict_path):
+            try:
+                with open(dict_path, "r", encoding="utf-8") as f:
+                    custom_dict = json.load(f)
+
+                    # Extract the keys (words) from your JSON.
+                    # We filter for length >= 3 so short words don't spam the autocomplete dropdown
+                    dict_words = [word for word in custom_dict.keys() if len(word) >= 3]
+
+                    # Optional: If your JSON is massive (e.g., 300,000+ words),
+                    # you might want to limit it to keep the UI fast.
+                    # dict_words = dict_words[:20000]
+
+                    self.word_database.extend(dict_words)
+            except Exception as e:
+                print(f"Error loading dictionary.json: {e}")
+        else:
+            print(
+                "dictionary.json not found! Place it in the same directory as the script."
+            )
+        self.completer = QCompleter(self.word_database, self)
+        self.completer.setWidget(self)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        # Using StartsWith ensures predictive matching
+        self.completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        self.completer.activated.connect(self.insert_completion)
+
+        self.dict_worker = None
+
+    def text_under_cursor(self):
+        """Extracts the exact word or \command directly behind the text cursor."""
+        tc = self.textCursor()
+        tc.movePosition(
+            QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        text = tc.selectedText()
+        match = re.search(r"[A-Za-z\\]+$", text)
+        return match.group(0) if match else ""
+
+    def insert_completion(self, completion):
+        """Inserts the selected completion, skipping the letters already typed."""
+        if self.completer.widget() is not self:
+            return
+
+        tc = self.textCursor()
+        prefix = self.completer.completionPrefix()
+
+        # FIX: Simply slice the completion starting from the length of the prefix.
+        # If prefix is "hel" and completion is "hello", it inserts "lo".
+        # If prefix is "hello" and completion is "hello", it inserts "" (nothing).
+        remainder = completion[len(prefix) :]
+
+        tc.insertText(remainder)
+        self.setTextCursor(tc)
+
+    def keyPressEvent(self, e):
+        # 1. Let the QCompleter intercept Tab/Enter/Arrows if it is visible!
+        if (
+            self.completer
+            and self.completer.popup()
+            and self.completer.popup().isVisible()
+        ):
+            if e.key() in (
+                Qt.Key.Key_Enter,
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Escape,
+                Qt.Key.Key_Tab,
+                Qt.Key.Key_Backtab,
+            ):
+                e.ignore()
+                return
+
+        # 2. Handle Auto-Indent
+        if e.key() == Qt.Key.Key_Return:
+            tc = self.textCursor()
+            line = tc.block().text()
+            indent = len(line) - len(line.lstrip(" \t"))
+            prefix = line[:indent]
+            if "\\begin{" in line and "\\end{" not in line:
+                prefix += "    "
+
+            super().keyPressEvent(e)  # Execute the Enter key
+            self.insertPlainText(prefix)  # Insert the calculated spaces
+            return
+
+        # 3. Process normal typing
+        super().keyPressEvent(e)
+
+        # Skip processing if we pressed non-character keys (Shift, Ctrl, etc.)
+        if not e.text() or e.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+        ):
+            return
+
+        # 4. Trigger Autocomplete dynamically
+        current_prefix = self.text_under_cursor()
+
+        # Rules for showing the Autocomplete dropdown:
+        # - Always show for backslashes (\command)
+        # - Show for normal words if they are 3 letters or longer
+        if (current_prefix.startswith("\\") and len(current_prefix) >= 1) or (
+            current_prefix.isalpha() and len(current_prefix) >= 3
+        ):
+
+            # This handles internal filtering perfectly
+            self.completer.setCompletionPrefix(current_prefix)
+
+            # Select the first item by default
+            popup = self.completer.popup()
+            popup.setCurrentIndex(self.completer.completionModel().index(0, 0))
+
+            # Display logic
+            cr = self.cursorRect()
+            cr.setWidth(
+                self.completer.popup().sizeHintForColumn(0)
+                + self.completer.popup().verticalScrollBar().sizeHint().width()
+                + 20
+            )
+
+            cr.translate(0, 20)
+            self.completer.complete(cr)
+        else:
+            self.completer.popup().hide()
+
+    def prettier_format(self):
+        text = self.toPlainText()
+        lines = text.split("\n")
+        formatted = []
+        indent_level = 0
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("\\end{"):
+                indent_level = max(0, indent_level - 1)
+            if stripped == "":
+                formatted.append("")
+            else:
+                formatted.append("    " * indent_level + stripped)
+            if stripped.startswith("\\begin{") and not stripped.startswith(
+                "\\begin{document}"
+            ):
+                indent_level += 1
+        self.setPlainText("\n".join(formatted))
+        self.show_alert.emit("✨ Format Complete", "Document formatted cleanly.")
+
+    def contextMenuEvent(self, event):
+        """Right-Click menu: Local Spell Correction and PyDictionary"""
+        tc = self.cursorForPosition(event.pos())
+        tc.select(QTextCursor.SelectionType.WordUnderCursor)
+        word = tc.selectedText().strip()
+
+        menu = self.createStandardContextMenu()
+
+        # Spell Correction Integration
+        if HAS_SPELLCHECK and word.isalpha() and len(word) > 1:
+            if word.lower() not in spell.word_frequency.dictionary:
+                candidates = spell.candidates(word)
+                if candidates:
+                    menu.addSeparator()
+                    title = menu.addAction("💡 Spelling Suggestions:")
+                    title.setEnabled(False)
+                    count = 0
+                    for cand in candidates:
+                        if count >= 4:
+                            break
+                        action = menu.addAction(f"Replace with: {cand}")
+                        action.triggered.connect(
+                            lambda checked, c=cand, cur=tc: self.replace_misspelled_word(
+                                cur, c
+                            )
+                        )
+                        count += 1
+
+        # PyDictionary Integration
+        if word.isalpha():
+            menu.addSeparator()
+            dict_action = menu.addAction(f"📖 Local Dictionary: Define '{word}'")
+            action = menu.exec(event.globalPos())
+            if action == dict_action:
+                self.dict_worker = DictionaryWorker(word)
+                self.dict_worker.result_ready.connect(self.show_alert.emit)
+                self.dict_worker.start()
+        else:
+            menu.exec(event.globalPos())
+
+    def replace_misspelled_word(self, cursor, correct_word):
+        cursor.insertText(correct_word)
+
+
 # --- CUSTOM FILE EXPLORER DIALOG ---
 class CustomFileDialog(QDialog):
     def __init__(self, mode="open", extension=".tex", start_dir=None, parent=None):
@@ -202,7 +526,6 @@ class CustomFileDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-
         title = QLabel(f" {'📂 OPEN FILE' if mode == 'open' else '💾 SAVE FILE'} ")
         title.setObjectName("ExplorerTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -211,7 +534,6 @@ class CustomFileDialog(QDialog):
         path_layout = QHBoxLayout()
         btn_up = QPushButton("⬆ UP DIR")
         btn_up.clicked.connect(self.go_up)
-
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
         path_layout.addWidget(btn_up)
@@ -220,20 +542,16 @@ class CustomFileDialog(QDialog):
 
         self.model = QFileSystemModel()
         self.model.setRootPath("")
-
         if self.mode == "open":
             self.model.setNameFilters([f"*{self.extension}"])
             self.model.setNameFilterDisables(False)
 
         self.list_view = QListView()
         self.list_view.setModel(self.model)
-
-        # Set default directory logic
         if not start_dir or not os.path.isdir(start_dir):
             start_dir = QDir.homePath()
         self.list_view.setRootIndex(self.model.index(start_dir))
         self.path_edit.setText(start_dir)
-
         self.list_view.doubleClicked.connect(self.on_double_click)
         self.list_view.clicked.connect(self.on_single_click)
         layout.addWidget(self.list_view)
@@ -278,16 +596,9 @@ class CustomFileDialog(QDialog):
         current_folder = self.path_edit.text()
         input_name = self.name_input.text().strip()
         if not input_name and self.mode == "save":
-            QMessageBox.warning(self, "Warning", "Please enter a file name.")
             return
-        if self.mode == "save":
-            if not input_name.endswith(self.extension):
-                input_name += self.extension
-        else:
-            if not input_name:
-                return
-            if not input_name.endswith(self.extension):
-                input_name += self.extension
+        if not input_name.endswith(self.extension):
+            input_name += self.extension
         self.selected_path = os.path.join(current_folder, input_name)
         self.accept()
 
@@ -297,12 +608,9 @@ class SuyoraTexApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SuyoraTex - Multi-Theme LaTeX Editor")
-
-        # Load Window Icon
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(script_dir, "logo.svg")
-        self.setWindowIcon(QIcon(icon_path))
-
+        self.setWindowIcon(
+            QIcon(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.svg"))
+        )
         self.resize(1350, 850)
 
         self.current_file = None
@@ -316,23 +624,17 @@ class SuyoraTexApp(QMainWindow):
         self.compile_timer.setInterval(800)
         self.compile_timer.timeout.connect(self.compile_latex)
 
-        # Load User Settings
         self.settings = self.load_settings()
-
         self.init_ui()
         self.init_shortcuts()
-
-        # Apply Theme (Defaults to Neobrutalism if not set)
         self.change_theme(self.settings.get("theme", "Neobrutalism"))
 
-    # --- SETTINGS MANAGEMENT ---
     def load_settings(self):
         config_dir = Path.home() / ".config" / "suyoratex"
         config_file = config_dir / "settings.json"
         if config_file.exists():
             try:
-                with open(config_file, "r") as f:
-                    return json.load(f)
+                return json.load(open(config_file, "r"))
             except:
                 pass
         return {
@@ -344,10 +646,8 @@ class SuyoraTexApp(QMainWindow):
     def save_settings(self):
         config_dir = Path.home() / ".config" / "suyoratex"
         config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / "settings.json"
         try:
-            with open(config_file, "w") as f:
-                json.dump(self.settings, f)
+            json.dump(self.settings, open(config_dir / "settings.json", "w"))
         except:
             pass
 
@@ -356,8 +656,7 @@ class SuyoraTexApp(QMainWindow):
         if path in recents:
             recents.remove(path)
         recents.insert(0, path)
-        recents = recents[:5]  # Keep only the top 5 recent files
-        self.settings["recent_files"] = recents
+        self.settings["recent_files"] = recents[:5]
         self.settings["last_dir"] = os.path.dirname(path)
         self.save_settings()
         self.update_recent_files_ui()
@@ -367,7 +666,6 @@ class SuyoraTexApp(QMainWindow):
         self.setCentralWidget(self.stacked_widget)
         self.setup_welcome_page()
         self.setup_workspace_page()
-        self.stacked_widget.setCurrentIndex(0)
 
     def setup_welcome_page(self):
         self.welcome_page = QWidget()
@@ -386,7 +684,14 @@ class SuyoraTexApp(QMainWindow):
         title = QLabel("SuyoraTex Editor")
         title.setObjectName("WelcomeTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle = QLabel("A fast, live-preview LaTeX editor with dynamic themes.")
+
+        subtitle_text = (
+            "A fast, live-preview LaTeX editor with Native Auto-Complete IDE Features."
+        )
+        if not HAS_SPELLCHECK or not HAS_DICT:
+            subtitle_text += "\n[⚠️ Warning: Please run 'pip install pyspellchecker PyDictionary' to enable Dictionary features]"
+
+        subtitle = QLabel(subtitle_text)
         subtitle.setObjectName("WelcomeSubtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -403,35 +708,28 @@ class SuyoraTexApp(QMainWindow):
 
         btn_layout = QHBoxLayout()
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        btn_layout.setSpacing(40)
         btn_layout.addWidget(btn_new)
         btn_layout.addWidget(btn_open)
         layout.addLayout(btn_layout)
 
-        # Add Recent Files UI
         layout.addSpacing(40)
         recent_label = QLabel("🕒 RECENT FILES")
-        recent_label.setObjectName("ExplorerTitle")  # Reuse style
+        recent_label.setObjectName("ExplorerTitle")
         recent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(recent_label)
 
         self.recent_files_layout = QVBoxLayout()
         self.recent_files_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.recent_files_layout.setSpacing(10)
         layout.addLayout(self.recent_files_layout)
-
         self.update_recent_files_ui()
         layout.addStretch()
-
         self.stacked_widget.addWidget(self.welcome_page)
 
     def update_recent_files_ui(self):
-        # Clear existing items
         for i in reversed(range(self.recent_files_layout.count())):
             widget = self.recent_files_layout.itemAt(i).widget()
             if widget:
                 widget.deleteLater()
-
         recent_files = self.settings.get("recent_files", [])
         if not recent_files:
             lbl = QLabel("No recent files yet.")
@@ -441,7 +739,6 @@ class SuyoraTexApp(QMainWindow):
             for file_path in recent_files:
                 if os.path.exists(file_path):
                     btn = QPushButton(f"📄 {os.path.basename(file_path)}")
-                    btn.setToolTip(file_path)
                     btn.setMinimumWidth(300)
                     btn.clicked.connect(
                         lambda checked, p=file_path: self.load_file_into_editor(p)
@@ -457,15 +754,12 @@ class SuyoraTexApp(QMainWindow):
 
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
-        sidebar.setMinimumWidth(160)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(15, 20, 15, 20)
-        sidebar_layout.setSpacing(10)
 
         def make_sidebar_btn(text, obj_name, callback):
             btn = QPushButton(text)
             btn.setProperty("class", "SidebarBtn")
-            btn.setObjectName(obj_name)
             btn.clicked.connect(callback)
             sidebar_layout.addWidget(btn)
 
@@ -473,7 +767,12 @@ class SuyoraTexApp(QMainWindow):
         make_sidebar_btn("📝 NEW", "SidebarBtnNew", self.action_new_file)
         make_sidebar_btn("📂 OPEN", "SidebarBtnOpen", self.action_open_file)
         make_sidebar_btn("💾 SAVE", "SidebarBtnSave", self.action_save_file)
-        make_sidebar_btn("🖨️ PDF", "SidebarBtnPdf", self.action_export_pdf)
+        make_sidebar_btn("🖨️ EXPORT PDF", "SidebarBtnPdf", self.action_export_pdf)
+        sidebar_layout.addSpacing(20)
+        make_sidebar_btn(
+            "✨ PRETTIER", "SidebarBtnFormat", lambda: self.editor.prettier_format()
+        )
+
         sidebar_layout.addStretch()
         self.theme_combo_side = QComboBox()
         self.theme_combo_side.addItems(THEMES.keys())
@@ -486,16 +785,13 @@ class SuyoraTexApp(QMainWindow):
         editor_panel = QWidget()
         editor_layout = QVBoxLayout(editor_panel)
         editor_layout.setContentsMargins(0, 0, 0, 0)
-        editor_layout.setSpacing(0)
 
         self.find_bar = QWidget()
         self.find_bar.setObjectName("FindBar")
         find_layout = QHBoxLayout(self.find_bar)
-        find_layout.setContentsMargins(10, 5, 10, 5)
         self.find_input = QLineEdit()
-        self.find_input.setObjectName("FindInput")
-        self.find_input.setPlaceholderText("Find text...")
         self.find_input.returnPressed.connect(self.find_next)
+
         btn_find_prev = QPushButton("▲ Prev")
         btn_find_prev.setProperty("class", "FindBtn")
         btn_find_prev.clicked.connect(self.find_prev)
@@ -505,7 +801,6 @@ class SuyoraTexApp(QMainWindow):
         btn_find_close = QPushButton("✖")
         btn_find_close.setProperty("class", "FindBtn")
         btn_find_close.clicked.connect(self.hide_find_bar)
-        find_layout.addWidget(QLabel("🔍"))
         find_layout.addWidget(self.find_input)
         find_layout.addWidget(btn_find_prev)
         find_layout.addWidget(btn_find_next)
@@ -513,15 +808,15 @@ class SuyoraTexApp(QMainWindow):
         self.find_bar.hide()
         editor_layout.addWidget(self.find_bar)
 
-        self.editor = QPlainTextEdit()
+        self.editor = EnhancedTexEditor()
         font = QFont("Monospace", 13)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.editor.setFont(font)
-        self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.editor.textChanged.connect(self.on_text_changed)
+        self.editor.show_alert.connect(lambda t, m: QMessageBox.information(self, t, m))
+
         self.status_bar = QLabel("READY.")
         self.status_bar.setObjectName("StatusLabel")
-        self.set_status_state("READY.", "normal")
         editor_layout.addWidget(self.editor)
         editor_layout.addWidget(self.status_bar)
         self.workspace_splitter.addWidget(editor_panel)
@@ -529,11 +824,9 @@ class SuyoraTexApp(QMainWindow):
         pdf_panel = QWidget()
         pdf_layout = QVBoxLayout(pdf_panel)
         pdf_layout.setContentsMargins(0, 0, 0, 0)
-        pdf_layout.setSpacing(0)
         toolbar = QWidget()
         toolbar.setObjectName("Toolbar")
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(15, 10, 15, 10)
         btn_out = QPushButton("ZOOM -")
         btn_out.clicked.connect(self.zoom_out)
         btn_reset = QPushButton("RESET")
@@ -594,13 +887,13 @@ class SuyoraTexApp(QMainWindow):
         options = QTextDocument.FindFlag(0)
         if backward:
             options |= QTextDocument.FindFlag.FindBackward
-        found = self.editor.find(text, options)
-        if not found:
+        if not self.editor.find(text, options):
             cursor = self.editor.textCursor()
-            if backward:
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-            else:
-                cursor.movePosition(QTextCursor.MoveOperation.Start)
+            cursor.movePosition(
+                QTextCursor.MoveOperation.End
+                if backward
+                else QTextCursor.MoveOperation.Start
+            )
             self.editor.setTextCursor(cursor)
             self.editor.find(text, options)
 
@@ -619,11 +912,8 @@ class SuyoraTexApp(QMainWindow):
             self.theme_combo_side.setCurrentText(theme_name)
             self.theme_combo_welcome.blockSignals(False)
             self.theme_combo_side.blockSignals(False)
-
-            # Save the new theme choice to settings
-            if hasattr(self, "settings"):
-                self.settings["theme"] = theme_name
-                self.save_settings()
+            self.settings["theme"] = theme_name
+            self.save_settings()
 
     def set_status_state(self, text, state="normal"):
         self.status_bar.setText(text)
@@ -644,7 +934,6 @@ class SuyoraTexApp(QMainWindow):
         if not os.path.exists(path):
             QMessageBox.critical(self, "ERROR", f"File no longer exists:\n{path}")
             return
-
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -692,7 +981,6 @@ class SuyoraTexApp(QMainWindow):
         if self.stacked_widget.currentIndex() != 1:
             return
         if not os.path.exists(self.pdf_file):
-            QMessageBox.warning(self, "WARNING", "No compiled PDF exists yet.")
             return
         dialog = CustomFileDialog(
             mode="save",
@@ -723,9 +1011,8 @@ class SuyoraTexApp(QMainWindow):
     def compile_latex(self):
         self.set_status_state("COMPILING...", "working")
         QApplication.processEvents()
-        latex_code = self.editor.toPlainText()
         with open(self.live_tex_file, "w", encoding="utf-8") as f:
-            f.write(latex_code)
+            f.write(self.editor.toPlainText())
         working_dir = (
             os.path.dirname(self.current_file)
             if self.current_file
@@ -782,7 +1069,7 @@ class SuyoraTexApp(QMainWindow):
                 page_label.setPixmap(QPixmap.fromImage(img))
                 self.pdf_content_layout.addWidget(page_label)
             doc.close()
-        except Exception as e:
+        except Exception:
             pass
 
     def zoom_in(self):
@@ -815,17 +1102,15 @@ class SuyoraTexApp(QMainWindow):
 \end{center}
 
 \vspace{1cm}
-\noindent \textbf{New Feature Added: Find Text!} \\
-Press \texttt{Ctrl + F} on your keyboard right now to open the search bar at the top of the editor.
-
-\vspace{0.5cm}
-\noindent \textbf{How to use the Find bar:}
+\noindent \textbf{New Intelligent Features:} \\
+This editor now ships with native IDE Auto-Complete and Spell Check:
 \begin{itemize}
-    \item Type what you are looking for.
-    \item Press \texttt{Enter} to instantly jump to the next matching word.
-    \item Use the \textbf{Prev} / \textbf{Next} buttons to navigate.
-    \item Press \texttt{Esc} while in the search box to close it and return to the editor.
-    \item It even loops around the document automatically!
+    \item \textbf{Real-Time Word Completion:} Start typing any English word (like "app..."), use your Up/Down arrow keys, and press TAB to autocomplete!
+    \item \textbf{LaTeX Code Auto-Complete:} Type \texttt{\textbackslash} to trigger the code dropdown and save time.
+    \item \textbf{Real-Time Spellcheck:} Misspelled words highlight in red immediately. Right-click to correct them!
+    \item \textbf{Syntax Highlighting:} Commands, Math, and Comments are color-coded dynamically.
+    \item \textbf{Prettier (Formatter):} Click '✨ PRETTIER' in the sidebar to auto-format entire texts.
+    \item \textbf{Local Dictionary:} Right click on any English word and select 'Local Dictionary' to fetch its definition offline.
 \end{itemize}
 
 \vspace{1cm}
@@ -841,7 +1126,8 @@ Press \texttt{Ctrl + F} on your keyboard right now to open the search bar at the
 
 
 if __name__ == "__main__":
-    os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
+    if sys.platform.startswith("linux"):
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
     app = QApplication(sys.argv)
     window = SuyoraTexApp()
     window.show()
